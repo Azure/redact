@@ -214,7 +214,7 @@ func TestInterface(t *testing.T) {
 	i := interface{}(&TestStruct{})
 	err := redact.Redact(&i)
 	assert.NoError(t, err)
-	assert.Equal(t, i, &TestStruct{}) // this is broken
+	assert.Equal(t, i, &TestStruct{Secret: redact.RedactStrConst, SecretStringType: redact.RedactStrConst})
 }
 
 func TestNestedStructs(t *testing.T) {
@@ -250,7 +250,6 @@ func TestArray(t *testing.T) {
 
 	assert.Equal(t, "", tStruct.NotSecretStrings[0], "should contain non secret value")
 	assert.Equal(t, "", tStruct.NotSecretStrings[1], "should contain non secret value")
-	// these are broken
-	// assert.Equal(t, redact.RedactStrConst, tStruct.SecretStrings[0], "should redact secret value")
-	// assert.Equal(t, redact.RedactStrConst, tStruct.SecretStrings[1], "should redact secret value")
+	assert.Equal(t, redact.RedactStrConst, tStruct.SecretStrings[0], "should redact secret value")
+	assert.Equal(t, redact.RedactStrConst, tStruct.SecretStrings[1], "should redact secret value")
 }
