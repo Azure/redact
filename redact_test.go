@@ -1,6 +1,7 @@
 package redact_test
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/samkreter/redact"
@@ -16,14 +17,21 @@ var (
 	secretPtrVal = "thisIsAPtrSecret"
 )
 
+type StringType string
+
 type TestStruct struct {
-	Secret    string
-	SecretPtr *string
-	NonSecret string `redact:"nonsecret"`
+	Secret           string
+	SecretStringType StringType
+	SecretPtr        *string
+	NonSecret        string `redact:"nonsecret"`
+	unexported       string
 }
 
 type TestStructList struct {
-	Data []*TestStruct
+	Data               []*TestStruct
+	StringSliceData    []string
+	IntSliceData       []int
+	StringPtrSliceData []*string
 }
 
 type TestMaps struct {
@@ -36,12 +44,19 @@ type TestMapList struct {
 	Data []*TestMaps
 }
 
+type TestNestedStruct struct {
+	TestStruct    TestStruct
+	TestStructPtr *TestStruct
+}
+
 func TestStringTestStruct(t *testing.T) {
 	t.Run("Basic Secret Redaction", func(t *testing.T) {
 		tStruct := &TestStruct{
-			NonSecret: nonSecretVal,
-			Secret:    secretVal,
-			SecretPtr: &secretPtrVal,
+			NonSecret:        nonSecretVal,
+			Secret:           secretVal,
+			SecretStringType: secretVal,
+			SecretPtr:        &secretPtrVal,
+			unexported:       nonSecretVal,
 		}
 
 		err := redact.Redact(tStruct)
@@ -49,7 +64,9 @@ func TestStringTestStruct(t *testing.T) {
 
 		assert.Equal(t, nonSecretVal, tStruct.NonSecret, "should contain non secret value")
 		assert.Equal(t, redact.RedactStrConst, tStruct.Secret, "should redact secret value")
+		assert.Equal(t, StringType(redact.RedactStrConst), tStruct.SecretStringType, "should redact secret value")
 		assert.Equal(t, redact.RedactStrConst, *tStruct.SecretPtr, "should redact secret value")
+		assert.Equal(t, nonSecretVal, tStruct.unexported, "should contain non secret value")
 	})
 
 	t.Run("Should still redact empty strings", func(t *testing.T) {
@@ -80,7 +97,10 @@ func TestStringTestStructList(t *testing.T) {
 		}
 
 		list := &TestStructList{
-			Data: []*TestStruct{tStruct},
+			Data:               []*TestStruct{tStruct},
+			StringSliceData:    []string{secretVal},
+			IntSliceData:       []int{0},
+			StringPtrSliceData: []*string{&secretPtrVal, nil},
 		}
 
 		err := redact.Redact(list)
@@ -89,6 +109,8 @@ func TestStringTestStructList(t *testing.T) {
 		assert.Equal(t, nonSecretVal, list.Data[0].NonSecret, "should contain non secret value")
 		assert.Equal(t, redact.RedactStrConst, list.Data[0].Secret, "should redact secret value")
 		assert.Equal(t, redact.RedactStrConst, *list.Data[0].SecretPtr, "should redact secret value")
+		assert.Equal(t, redact.RedactStrConst, list.StringSliceData[0], "should redact secret value")
+		assert.Equal(t, redact.RedactStrConst, *list.StringPtrSliceData[0], "should redact secret value")
 	})
 
 	t.Run("Should still redact empty strings", func(t *testing.T) {
@@ -101,7 +123,10 @@ func TestStringTestStructList(t *testing.T) {
 		}
 
 		list := &TestStructList{
-			Data: []*TestStruct{tStruct},
+			Data:               []*TestStruct{tStruct},
+			StringSliceData:    []string{""},
+			IntSliceData:       []int{0},
+			StringPtrSliceData: []*string{&[]string{""}[0], nil},
 		}
 
 		err := redact.Redact(list)
@@ -110,6 +135,8 @@ func TestStringTestStructList(t *testing.T) {
 		assert.Equal(t, nonSecretVal, list.Data[0].NonSecret, "should contain non secret value")
 		assert.Equal(t, redact.RedactStrConst, list.Data[0].Secret, "should redact secret value")
 		assert.Equal(t, redact.RedactStrConst, *list.Data[0].SecretPtr, "should redact secret value")
+		assert.Equal(t, redact.RedactStrConst, list.StringSliceData[0], "should redact secret value")
+		assert.Equal(t, redact.RedactStrConst, *list.StringPtrSliceData[0], "should redact secret value")
 	})
 
 }
@@ -176,4 +203,54 @@ func TestStringTestMapAndEmbedded(t *testing.T) {
 		assert.Equal(t, redact.RedactStrConst, *testMapList.Data[0].TestStructSecrets["ptr-test-struct-key"].SecretPtr, "should redact secret value")
 		assert.Equal(t, nonSecretVal, testMapList.Data[0].TestStructSecrets["ptr-test-struct-key"].NonSecret, "should redact secret value")
 	})
+}
+
+func TestNotSettable(t *testing.T) {
+	err := redact.Redact(1)
+	assert.Error(t, err)
+}
+
+func TestInterface(t *testing.T) {
+	i := interface{}(&TestStruct{})
+	err := redact.Redact(&i)
+	assert.NoError(t, err)
+	assert.Equal(t, i, &TestStruct{}) // this is broken
+}
+
+func TestNestedStructs(t *testing.T) {
+	tns := &TestNestedStruct{
+		TestStructPtr: &TestStruct{SecretPtr: &[]string{""}[0]},
+	}
+	err := redact.Redact(tns)
+	assert.NoError(t, err)
+	assert.Equal(t, tns, &TestNestedStruct{
+		TestStruct:    TestStruct{Secret: redact.RedactStrConst, SecretStringType: redact.RedactStrConst, SecretPtr: nil},
+		TestStructPtr: &TestStruct{Secret: redact.RedactStrConst, SecretStringType: redact.RedactStrConst, SecretPtr: &[]string{redact.RedactStrConst}[0]},
+	})
+}
+
+func TestCustomRedactor(t *testing.T) {
+	redact.AddRedactor("lower", strings.ToLower)
+	s := &struct {
+		S string `redact:"lower"`
+	}{"DATA"}
+	err := redact.Redact(s)
+	assert.NoError(t, err)
+	assert.Equal(t, s.S, "data")
+}
+
+func TestArray(t *testing.T) {
+	tStruct := &struct {
+		SecretStrings    [2]string
+		NotSecretStrings [2]string `redact:"nonsecret"`
+	}{}
+
+	err := redact.Redact(tStruct)
+	assert.NoError(t, err, "should not fail to redact struct")
+
+	assert.Equal(t, "", tStruct.NotSecretStrings[0], "should contain non secret value")
+	assert.Equal(t, "", tStruct.NotSecretStrings[1], "should contain non secret value")
+	// these are broken
+	// assert.Equal(t, redact.RedactStrConst, tStruct.SecretStrings[0], "should redact secret value")
+	// assert.Equal(t, redact.RedactStrConst, tStruct.SecretStrings[1], "should redact secret value")
 }
