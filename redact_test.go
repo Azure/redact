@@ -25,6 +25,7 @@ type TestStruct struct {
 	SecretPtr        *string
 	NonSecret        string `redact:"nonsecret"`
 	unexported       string
+	unexportedMap    map[string]string
 }
 
 type TestStructList struct {
@@ -57,6 +58,7 @@ func TestStringTestStruct(t *testing.T) {
 			SecretStringType: secretVal,
 			SecretPtr:        &secretPtrVal,
 			unexported:       nonSecretVal,
+			unexportedMap:    map[string]string{"": ""},
 		}
 
 		err := redact.Redact(tStruct)

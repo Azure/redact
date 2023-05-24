@@ -61,14 +61,14 @@ func redact(v reflect.Value, tag string) {
 		}
 
 	case reflect.String:
-		if v.CanSet() {
-			v.SetString(transformString(v.String(), tag))
-		}
+		v.SetString(transformString(v.String(), tag))
 
 	case reflect.Struct:
 		for i := 0; i < v.NumField(); i++ {
-			tag, _ := v.Type().Field(i).Tag.Lookup(tagName)
-			redact(v.Field(i), tag)
+			if v.Field(i).CanSet() {
+				tag, _ := v.Type().Field(i).Tag.Lookup(tagName)
+				redact(v.Field(i), tag)
+			}
 		}
 	}
 }
