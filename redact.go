@@ -7,6 +7,7 @@ import (
 
 const (
 	tagName        = "redact"
+	nonSecret      = "nonsecret"
 	RedactStrConst = "REDACTED"
 )
 
@@ -26,133 +27,55 @@ func Redact(iface interface{}) error {
 		return errors.New("Not a pointer")
 	}
 
-	ift := reflect.Indirect(ifv).Type()
-	if ift.Kind() != reflect.Struct {
-		return nil
-	}
-	for i := 0; i < ift.NumField(); i++ {
-		v := ift.Field(i)
-		el := reflect.Indirect(ifv.Elem().FieldByName(v.Name))
-		switch el.Kind() {
-		case reflect.Struct:
-			if el.CanAddr() && el.Addr().CanInterface() {
-				Redact(el.Addr().Interface())
-			}
-		case reflect.String:
-			if el.CanSet() {
-				tagVal := v.Tag.Get(tagName)
-				input := el.String()
-				el.SetString(transformString(input, tagVal))
-			}
-		default:
-			tagVal := v.Tag.Get(tagName)
-			if el.CanAddr() && el.Addr().CanInterface() {
-				redactHelper(el.Addr().Interface(), tagVal)
-			}
-
-		}
-	}
+	redact(reflect.Indirect(ifv), nonSecret)
 	return nil
 }
 
-func redactHelper(iface interface{}, tagVal string) error {
-	ifv := reflect.ValueOf(iface)
-	if ifv.Kind() != reflect.Ptr {
-		return errors.New("Not a pointer")
-	}
-
-	ifIndirectValue := reflect.Indirect(ifv)
-	switch ifIndirectValue.Kind() {
-	case reflect.Slice:
-		if ifIndirectValue.CanInterface() {
-			elType := getSliceElemType(ifIndirectValue.Type())
-
-			// allow strings and string pointers
-			str := ""
-			if (elType.ConvertibleTo(reflect.TypeOf(str)) && reflect.TypeOf(str).ConvertibleTo(elType)) ||
-				(elType.ConvertibleTo(reflect.TypeOf(&str)) && reflect.TypeOf(&str).ConvertibleTo(elType)) {
-				for i := 0; i < ifIndirectValue.Len(); i++ {
-					ifIndirectValue.Index(i).Set(transformValue(tagVal, ifIndirectValue.Index(i)))
-				}
-			} else {
-				val := reflect.ValueOf(ifIndirectValue.Interface())
-				for i := 0; i < val.Len(); i++ {
-					elVal := val.Index(i)
-					if elVal.Kind() != reflect.Ptr {
-						elVal = elVal.Addr()
-					}
-					redactHelper(elVal.Interface(), tagVal)
-				}
-			}
+func redact(v reflect.Value, tag string) {
+	switch v.Kind() {
+	case reflect.Array:
+		for i := 0; i < v.Len(); i++ {
+			redact(v.Index(i), tag)
 		}
+
+	case reflect.Interface, reflect.Pointer:
+		if !v.IsNil() {
+			redact(v.Elem(), tag)
+		}
+
 	case reflect.Map:
-		if ifIndirectValue.CanInterface() {
-			val := reflect.ValueOf(ifIndirectValue.Interface())
-			for _, key := range val.MapKeys() {
-				mapValue := val.MapIndex(key)
-				mapValuePtr := reflect.New(mapValue.Type())
-				mapValuePtr.Elem().Set(mapValue)
-				if mapValuePtr.Elem().CanAddr() {
-					redactHelper(mapValuePtr.Elem().Addr().Interface(), tagVal)
-				}
-				val.SetMapIndex(key, reflect.Indirect(mapValuePtr))
+		if !v.IsNil() {
+			for _, key := range v.MapKeys() {
+				val := reflect.New(v.Type().Elem()).Elem()
+				val.Set(v.MapIndex(key))
+				redact(val, tag)
+				v.SetMapIndex(key, val)
 			}
 		}
-	case reflect.Struct:
-		if ifIndirectValue.CanAddr() && ifIndirectValue.Addr().CanInterface() {
-			Redact(ifIndirectValue.Addr().Interface())
+
+	case reflect.Slice:
+		if !v.IsNil() {
+			for i := 0; i < v.Len(); i++ {
+				redact(v.Index(i), tag)
+			}
 		}
+
 	case reflect.String:
-		if ifIndirectValue.CanSet() {
-			input := ifIndirectValue.String()
-			ifIndirectValue.SetString(transformString(input, tagVal))
+		if v.CanSet() {
+			v.SetString(transformString(v.String(), tag))
 		}
-	case reflect.Ptr:
-		if ifIndirectValue.CanInterface() {
-			redactHelper(ifIndirectValue.Interface(), tagVal)
+
+	case reflect.Struct:
+		for i := 0; i < v.NumField(); i++ {
+			tag, _ := v.Type().Field(i).Tag.Lookup(tagName)
+			redact(v.Field(i), tag)
 		}
 	}
-	return nil
-}
-
-func getSliceElemType(t reflect.Type) reflect.Type {
-	var elType reflect.Type
-	if t.Kind() == reflect.Ptr {
-		elType = t.Elem().Elem()
-	} else {
-		elType = t.Elem()
-	}
-
-	return elType
-}
-
-func transformValue(tags string, val reflect.Value) reflect.Value {
-	if val.Kind() == reflect.Ptr && val.IsNil() {
-		return val
-	}
-
-	var oldStr string
-	if val.Kind() == reflect.Ptr {
-		oldStr = val.Elem().String()
-	} else {
-		oldStr = val.String()
-	}
-
-	newStr := transformString(oldStr, tags)
-
-	var newVal reflect.Value
-	if val.Kind() == reflect.Ptr {
-		newVal = reflect.ValueOf(&newStr)
-	} else {
-		newVal = reflect.ValueOf(newStr)
-	}
-
-	return newVal.Convert(val.Type())
 }
 
 func transformString(input, tagVal string) string {
 	switch tagVal {
-	case "nonsecret":
+	case nonSecret:
 		return input
 	default:
 		redactor, ok := redactors[tagVal]
