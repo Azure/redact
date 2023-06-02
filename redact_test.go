@@ -1,8 +1,10 @@
 package redact_test
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/azure/redact"
 	"github.com/stretchr/testify/assert"
@@ -416,4 +418,30 @@ func TestArray(t *testing.T) {
 	assert.Equal(t, newAStruct(), tStruct)
 	validate(tStructCopy)
 	redact.ValidateNoExportedAliases(tStruct, tStructCopy)
+}
+
+func TestTime(t *testing.T) {
+	// correct marshalling of time.Time depends on redact maintaining the contents of non-exported structs
+
+	newTime := func() *time.Time {
+		tm := time.Unix(0, 0).UTC()
+		return &tm
+	}
+
+	validate := func(tm *time.Time) {
+		b, err := json.Marshal(tm)
+		assert.NoError(t, err)
+		assert.Equal(t, []byte(`"1970-01-01T00:00:00Z"`), b)
+	}
+
+	tm := newTime()
+	err := redact.Redact(tm)
+	assert.NoError(t, err, "should not fail to redact struct")
+	validate(tm)
+
+	tm = newTime()
+	tmCopy := redact.AsCopy(tm)
+	assert.Equal(t, newTime(), tm)
+	validate(tmCopy)
+	redact.ValidateNoExportedAliases(tm, tmCopy)
 }
