@@ -45,11 +45,12 @@ func redact(v reflect.Value, tag string) {
 
 	case reflect.Map:
 		if !v.IsNil() {
-			for _, key := range v.MapKeys() {
+			iter := v.MapRange()
+			for iter.Next() {
 				val := reflect.New(v.Type().Elem()).Elem()
-				val.Set(v.MapIndex(key))
+				val.Set(iter.Value())
 				redact(val, tag)
-				v.SetMapIndex(key, val)
+				v.SetMapIndex(iter.Key(), val)
 			}
 		}
 
