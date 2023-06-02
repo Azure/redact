@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/azure/redact"
+	"github.com/Azure/redact"
 	"github.com/stretchr/testify/assert"
 )
 

@@ -1,4 +1,4 @@
-module github.com/azure/redact
+module github.com/Azure/redact
 
 go 1.19
 
