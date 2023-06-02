@@ -21,13 +21,13 @@ func AddRedactor(key string, r redactor) {
 }
 
 // Redact redacts all strings without the nonsecret tag
-func Redact(iface interface{}) error {
-	ifv := reflect.ValueOf(iface)
-	if ifv.Kind() != reflect.Ptr {
+func Redact(val any) error {
+	v := reflect.ValueOf(val)
+	if v.Kind() != reflect.Ptr {
 		return errors.New("Not a pointer")
 	}
 
-	redact(reflect.Indirect(ifv), nonSecret)
+	redact(v.Elem(), nonSecret)
 	return nil
 }
 
